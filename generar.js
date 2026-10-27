@@ -11,13 +11,13 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { leerCatalogos, leerProductos } = require('./src/fuente-admin');
+const { leerAjustes, leerCatalogos, leerProductos } = require('./src/fuente-admin');
 const { crearPDF } = require('./src/pdf');
 const { subirPDF, enlaceFijo, borrarArchivos, guardarResultado } = require('./src/publicar');
 const TIENDA = require('./tienda.json');
 
 // Bump when the PDF design changes so every catalog is rebuilt once
-const VERSION_DISENO = 5;
+const VERSION_DISENO = 6;
 const LIMITE_BYTES = 19 * 1024 * 1024;
 const CALIDADES = [
   { escala: 2.2, jpeg: 75 },
@@ -31,8 +31,9 @@ const CALIDADES = [
   const local = args.includes('--local');
   const solo = args.filter((a) => !a.startsWith('--'));
 
+  const ajustes = await leerAjustes();
   const catalogos = (await leerCatalogos()).filter((c) => c.activo && (!solo.length || solo.includes(c.slug)));
-  console.log(`${catalogos.length} catálogos activos`);
+  console.log(`${catalogos.length} catálogos activos · ajustes: nombre ${ajustes.tamanoNombre}, referencia ${ajustes.tamanoReferencia}, precio ${ajustes.tamanoPrecio}`);
   let fallos = 0;
 
   for (const catalogo of catalogos) {
@@ -41,7 +42,7 @@ const CALIDADES = [
       const { productos, excluidos } = await leerProductos(catalogo);
       const huella = crypto
         .createHash('sha1')
-        .update(JSON.stringify([VERSION_DISENO, TIENDA, catalogo.titulo, catalogo.portadaUrl, catalogo.mostrarPrecios, catalogo.sinPrecios, catalogo.disposicion, productos.map((p) => [p.id, p.title, p.precio, p.precioVariable, p.image, p.sku])]))
+        .update(JSON.stringify([VERSION_DISENO, TIENDA, ajustes, catalogo.titulo, catalogo.portadaUrl, catalogo.mostrarPrecios, catalogo.sinPrecios, catalogo.disposicion, productos.map((p) => [p.id, p.title, p.precio, p.precioVariable, p.image, p.sku])]))
         .digest('hex');
 
       const faltaPdf = !catalogo.pdfId || (catalogo.sinPrecios && !catalogo.pdfSinPreciosId);
@@ -57,14 +58,19 @@ const CALIDADES = [
       const versiones = [{ sufijo: '', mostrarPrecios: catalogo.mostrarPrecios, campo: 'pdf', anterior: catalogo.pdfId }];
       if (catalogo.sinPrecios && catalogo.mostrarPrecios) versiones.push({ sufijo: '-sin-precios', mostrarPrecios: false, campo: 'pdf_sin_precios', anterior: catalogo.pdfSinPreciosId });
 
-      const resultado = { productos: productos.length, actualizado: new Date().toISOString(), huella };
+      // A readable list of what the PDF contains, in its order, so it can be checked from the admin
+      const listado = productos
+        .map((p, i) => `${i + 1}. ${p.sku || 's/SKU'} · ${p.name}${p.reference ? ` (Ref. ${p.reference})` : ''} · $ ${p.precio.toLocaleString('es-CO')}`)
+        .join('\n')
+        .slice(0, 60000); // Shopify text fields hold up to 65,535 characters
+      const resultado = { productos: productos.length, actualizado: new Date().toISOString(), huella, productos_listado: listado };
       const viejos = [];
       for (const v of versiones) {
         const slug = `${catalogo.slug}${v.sufijo}`;
         // Shopify accepts uploads up to 20 MB: very large catalogs get lighter photos
         let bytes;
         for (const calidad of CALIDADES) {
-          bytes = await crearPDF({ catalogo: { ...catalogo, mostrarPrecios: v.mostrarPrecios }, tienda: TIENDA, productos, slug, calidad });
+          bytes = await crearPDF({ catalogo: { ...catalogo, mostrarPrecios: v.mostrarPrecios }, tienda: TIENDA, ajustes, productos, slug, calidad });
           if (bytes.length <= LIMITE_BYTES) break;
         }
         if (bytes.length > LIMITE_BYTES) throw new Error(`${slug}: el PDF pesa más de 19 MB incluso con fotos livianas; divide el catálogo`);
@@ -87,7 +93,7 @@ const CALIDADES = [
         await guardarResultado(catalogo.id, resultado);
         await borrarArchivos(viejos.filter((id) => id && !Object.values(resultado).includes(id)));
       }
-      console.log(`✓ ${catalogo.slug}: ${productos.length} productos (fuera: ${excluidos.sinFoto} sin foto, ${excluidos.sinInventario} sin inventario, ${excluidos.inactivos} inactivos/no publicados) en ${((Date.now() - t0) / 1000).toFixed(0)} s`);
+      console.log(`✓ ${catalogo.slug}: ${productos.length} productos (fuera: ${excluidos.sinFoto} sin foto, ${excluidos.sinInventario} sin inventario, ${excluidos.inactivos} inactivos/no publicados, ${excluidos.aMano} quitados a mano) en ${((Date.now() - t0) / 1000).toFixed(0)} s`);
     } catch (e) {
       fallos++;
       console.error(`✗ ${catalogo.slug}: ${e.message}`);
