@@ -5,6 +5,8 @@
 const MEASURES = new Set(['', 'cm', 'cms', 'mm', 'm', 'mt', 'mts', 'ml', 'l', 'lt', 'lts', 'litros', 'litro', 'g', 'gr', 'grs', 'gramos', 'kg', 'oz', 'w', 'v', 'mah', 'gb', 'x', 'und', 'unid', 'pzs', 'pcs', 'in', 'pulg', 'hz', 'k', 'p', 'cc']);
 const MARKERS = ['Ref:', 'ref:', 'REF:', 'Ref.', 'ref.', 'Ref ', 'REF ', 'ref '];
 const UNIT_LABELS = { DC: 'x docena', PAQ: 'x paquete', CJ: 'x caja' };
+// Green tag under the price, same text as the store's product cards
+const PRICE_TAGS = { UND: 'Precio mayorista x unidad', UNID: 'Precio mayorista x unidad', DC: 'Precio mayorista x docena', PAQ: 'Precio mayorista x paquete', CJ: 'Precio mayorista x caja' };
 
 const isDigit = (c) => c >= '0' && c <= '9';
 
@@ -83,7 +85,8 @@ function partirNombre(title) {
     }
   }
 
-  return { name, reference, unit, unitLabel: UNIT_LABELS[unit] || '' };
+  const priceTag = unit ? PRICE_TAGS[unit] || 'Precio mayorista' : '';
+  return { name, reference, unit, unitLabel: UNIT_LABELS[unit] || '', priceTag };
 }
 
 module.exports = { partirNombre };

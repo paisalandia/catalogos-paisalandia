@@ -22,6 +22,8 @@ const C = {
   photoBg: hex('#f6f8f4'),
   tagBg: hex('#eef0ec'),
   tagText: hex('#4b5563'),
+  priceTagBg: hex('#e5f2e3'), // the store's "Precio mayorista" tag: brand green at 12%
+  priceTagText: hex('#2e7d22'),
   white: rgb(1, 1, 1),
 };
 
@@ -167,7 +169,9 @@ async function crearPDF({ catalogo, tienda, ajustes = {}, productos, slug, calid
   const cardH = (gridTop - gridBottom - gap * (rows - 1)) / rows;
   const nameH = T.name * 1.25 * 2;
   const metaH = mostrarMeta ? T.meta + 9 : 0;
-  const textH = nameH + metaH + (catalogo.mostrarPrecios ? T.price + 8 : 0) + 14;
+  // "Precio mayorista x unidad/docena…" tag under the price, like the store's product cards
+  const tagH = catalogo.mostrarPrecios && productos.some((p) => p.priceTag) ? T.unit + 6 + 6 : 0;
+  const textH = nameH + metaH + (catalogo.mostrarPrecios ? T.price + 8 : 0) + tagH + 14;
   const photoH = cardH - textH - 10;
   // ~2x the printed size for phone zoom; big 2-column cards need less (≈400 px is sharp on a phone)
   const imgPx = Math.round(Math.min(cardW, photoH) * calidad.escala * (cols === 2 ? 0.68 : 1));
@@ -286,7 +290,7 @@ async function crearPDF({ catalogo, tienda, ajustes = {}, productos, slug, calid
         ly -= T.name * 1.25;
       }
       // Reference as a gray tag (same as the store's product cards), SKU beside it
-      const my = y + 10 + (catalogo.mostrarPrecios ? T.price + 8 : 0);
+      const my = y + 10 + tagH + (catalogo.mostrarPrecios ? T.price + 8 : 0);
       const pillH = T.meta + 6;
       let mx = tx;
       if (p.reference && ajustes.mostrarReferencia !== false) {
@@ -304,10 +308,13 @@ async function crearPDF({ catalogo, tienda, ajustes = {}, productos, slug, calid
       if (catalogo.mostrarPrecios) {
         const priceText = `${p.precioVariable ? 'Desde ' : ''}${formatoPrecio(p.precio)}`;
         // Large, heavy and dark green: the price must read at a glance on a phone
-        page.drawText(priceText, { x: tx, y: y + 10, size: T.price, font: F.black, color: colorPrecio });
-        if (p.unitLabel) {
-          const ux = tx + F.black.widthOfTextAtSize(priceText, T.price) + 7;
-          page.drawText(p.unitLabel, { x: ux, y: y + 11, size: T.unit, font: F.semibold, color: C.muted });
+        page.drawText(priceText, { x: tx, y: y + 10 + tagH, size: T.price, font: F.black, color: colorPrecio });
+        if (p.priceTag) {
+          const tagText = wrap(p.priceTag, F.semibold, T.unit, tw - 12, 1)[0];
+          const th = T.unit + 6;
+          const tWidth = F.semibold.widthOfTextAtSize(tagText, T.unit) + 12;
+          roundedRect(page, tx, y + 8, tWidth, th, th / 2, { color: C.priceTagBg });
+          page.drawText(tagText, { x: tx + 6, y: y + 8 + 3.5 + T.unit * 0.12, size: T.unit, font: F.semibold, color: C.priceTagText });
         }
       }
       addLink(doc, page, x, y, cardW, cardH, utm(p.url));
