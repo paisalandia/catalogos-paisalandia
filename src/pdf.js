@@ -19,6 +19,8 @@ const C = {
   muted: hex('#6b7280'),
   line: hex('#e4e9e1'),
   photoBg: hex('#f6f8f4'),
+  tagBg: hex('#eef0ec'),
+  tagText: hex('#4b5563'),
   white: rgb(1, 1, 1),
 };
 
@@ -92,6 +94,26 @@ async function fetchImage(url, size, quality = 75, tries = 3) {
   }
 }
 
+// Fits a designed cover to the page without cropping it: the image is centered whole, and the
+// margins are filled with a blurred, slightly darker copy of itself (covers come in many ratios)
+async function prepararPortada(url, tries = 3) {
+  const W = 1275; // US Letter at 150 dpi
+  const H = 1650;
+  for (let i = 0; i < tries; i++) {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(res.status);
+      const input = await sharp(Buffer.from(await res.arrayBuffer())).flatten({ background: '#ffffff' }).toBuffer();
+      const fondo = await sharp(input).resize(W, H, { fit: 'cover' }).blur(30).modulate({ brightness: 0.85 }).toBuffer();
+      const frente = await sharp(input).resize(W, H, { fit: 'inside' }).toBuffer();
+      return await sharp(fondo).composite([{ input: frente, gravity: 'center' }]).jpeg({ quality: 82, mozjpeg: true }).toBuffer();
+    } catch (e) {
+      if (i === tries - 1) return null;
+      await new Promise((r) => setTimeout(r, 800 * (i + 1)));
+    }
+  }
+}
+
 async function mapLimit(items, limit, fn) {
   const out = new Array(items.length);
   let next = 0;
@@ -106,8 +128,8 @@ async function mapLimit(items, limit, fn) {
   return out;
 }
 
-// catalogo: { titulo, subtitulo?, mostrarPrecios, disposicion }
-// tienda: { nombre, web, logoUrl, notaPrecios }
+// catalogo: { titulo, subtitulo?, mostrarPrecios, disposicion, portadaUrl? }
+// tienda: { nombre, web, logoUrl, notaPrecios, avisoHojas }
 // calidad: { escala, jpeg } — photo resolution relative to its printed size, and JPEG quality
 async function crearPDF({ catalogo, tienda, productos, slug, calidad = { escala: 2.2, jpeg: 75 } }) {
   const doc = await PDFDocument.create();
@@ -123,10 +145,10 @@ async function crearPDF({ catalogo, tienda, productos, slug, calidad = { escala:
   const [cols, rows] = LAYOUTS[catalogo.disposicion] || LAYOUTS['2x3'];
   const gap = 12;
   const gridTop = PAGE.h - 66;
-  const gridBottom = 46;
+  const gridBottom = 58;
   const cardW = (PAGE.w - 2 * M - gap * (cols - 1)) / cols;
   const cardH = (gridTop - gridBottom - gap * (rows - 1)) / rows;
-  const textH = catalogo.mostrarPrecios ? 58 : 46;
+  const textH = catalogo.mostrarPrecios ? 62 : 48;
   const photoH = cardH - textH - 10;
   const imgPx = Math.round(Math.min(cardW, photoH) * calidad.escala); // ~2x for phone zoom, still light
 
@@ -141,52 +163,64 @@ async function crearPDF({ catalogo, tienda, productos, slug, calidad = { escala:
 
   // ----- Cover -----
   const cover = doc.addPage([PAGE.w, PAGE.h]);
-  if (logo) {
-    const lh = 54;
-    const lw = (logo.width / logo.height) * lh;
-    cover.drawImage(logo, { x: (PAGE.w - lw) / 2, y: PAGE.h - 60 - lh, width: lw, height: lh });
-  }
-  const kicker = 'CATÁLOGO';
-  cover.drawText(kicker, { x: (PAGE.w - F.bold.widthOfTextAtSize(kicker, 10) - 3 * kicker.length) / 2, y: PAGE.h - 160, size: 10, font: F.bold, color: C.accentStrong, characterSpacing: 3 });
-  const titleLines = wrap(catalogo.titulo, F.black, 36, PAGE.w - 2 * M - 40, 2);
-  let ty = PAGE.h - 205;
-  for (const line of titleLines) {
-    const w = F.black.widthOfTextAtSize(line, 36);
-    const x = (PAGE.w - w) / 2;
-    cover.drawRectangle({ x: x - 4, y: ty - 6, width: w + 8, height: 14, color: C.highlight, opacity: 0.85 });
-    cover.drawText(line, { x, y: ty, size: 36, font: F.black, color: C.heading });
-    ty -= 44;
-  }
-  const sub = catalogo.subtitulo || `${productos.length} productos disponibles · Actualizado el ${fecha}`;
-  cover.drawText(sub, { x: (PAGE.w - F.medium.widthOfTextAtSize(sub, 11)) / 2, y: ty - 4, size: 11, font: F.medium, color: C.muted });
-
-  // Product mosaic: the cover sells with the products themselves
-  const mosaic = embedded.slice(0, 6).filter(Boolean);
-  if (mosaic.length) {
-    const mCols = 3;
-    const mRows = Math.ceil(mosaic.length / mCols);
-    const mGap = 10;
-    const mW = (PAGE.w - 2 * (M + 30) - mGap * (mCols - 1)) / mCols;
-    const mTop = ty - 40;
-    mosaic.forEach((img, i) => {
-      const cx = M + 30 + (i % mCols) * (mW + mGap);
-      const cy = mTop - Math.floor(i / mCols) * (mW + mGap) - mW;
-      roundedRect(cover, cx, cy, mW, mW, 10, { color: C.photoBg });
-      const s = Math.min((mW - 12) / img.width, (mW - 12) / img.height);
-      cover.drawImage(img, { x: cx + (mW - img.width * s) / 2, y: cy + (mW - img.height * s) / 2, width: img.width * s, height: img.height * s });
-    });
-    void mRows;
-  }
-
-  // Cover footer band
-  cover.drawRectangle({ x: 0, y: 0, width: PAGE.w, height: 64, color: C.accentSoft });
-  cover.drawRectangle({ x: 0, y: 64, width: PAGE.w, height: 2, color: C.accent });
-  const note = catalogo.mostrarPrecios ? tienda.notaPrecios : 'Consulta precios con tu asesor.';
-  cover.drawText(note, { x: M, y: 36, size: 9, font: F.medium, color: C.heading });
-  cover.drawText('Imágenes de referencia: el color y la textura pueden variar.', { x: M, y: 22, size: 8, font: F.regular, color: C.muted });
   const web = tienda.web.replace(/^https?:\/\//, '');
-  cover.drawText(web, { x: PAGE.w - M - F.bold.widthOfTextAtSize(web, 11), y: 30, size: 11, font: F.bold, color: C.accentStrong });
-  addLink(doc, cover, PAGE.w - M - 150, 20, 150, 28, utm(tienda.web));
+  // A designed cover image (from the catalog's "Portada" field) fills the whole first page
+  const portadaBytes = catalogo.portadaUrl ? await prepararPortada(catalogo.portadaUrl) : null;
+  if (portadaBytes) {
+    const img = await doc.embedJpg(portadaBytes);
+    cover.drawImage(img, { x: 0, y: 0, width: PAGE.w, height: PAGE.h });
+    addLink(doc, cover, 0, 0, PAGE.w, PAGE.h, utm(tienda.web));
+  } else {
+    dibujarPortada();
+  }
+
+  function dibujarPortada() {
+    if (logo) {
+      const lh = 54;
+      const lw = (logo.width / logo.height) * lh;
+      cover.drawImage(logo, { x: (PAGE.w - lw) / 2, y: PAGE.h - 60 - lh, width: lw, height: lh });
+    }
+    const kicker = 'CATÁLOGO';
+    cover.drawText(kicker, { x: (PAGE.w - F.bold.widthOfTextAtSize(kicker, 10) - 3 * kicker.length) / 2, y: PAGE.h - 160, size: 10, font: F.bold, color: C.accentStrong, characterSpacing: 3 });
+    const titleLines = wrap(catalogo.titulo, F.black, 36, PAGE.w - 2 * M - 40, 2);
+    let ty = PAGE.h - 205;
+    for (const line of titleLines) {
+      const w = F.black.widthOfTextAtSize(line, 36);
+      const x = (PAGE.w - w) / 2;
+      cover.drawRectangle({ x: x - 4, y: ty - 6, width: w + 8, height: 14, color: C.highlight, opacity: 0.85 });
+      cover.drawText(line, { x, y: ty, size: 36, font: F.black, color: C.heading });
+      ty -= 44;
+    }
+    const sub = catalogo.subtitulo || `${productos.length} productos disponibles · Actualizado el ${fecha}`;
+    cover.drawText(sub, { x: (PAGE.w - F.medium.widthOfTextAtSize(sub, 11)) / 2, y: ty - 4, size: 11, font: F.medium, color: C.muted });
+
+    // Product mosaic: the cover sells with the products themselves
+    const mosaic = embedded.slice(0, 6).filter(Boolean);
+    if (mosaic.length) {
+      const mCols = 3;
+      const mRows = Math.ceil(mosaic.length / mCols);
+      const mGap = 10;
+      const mW = (PAGE.w - 2 * (M + 30) - mGap * (mCols - 1)) / mCols;
+      const mTop = ty - 40;
+      mosaic.forEach((img, i) => {
+        const cx = M + 30 + (i % mCols) * (mW + mGap);
+        const cy = mTop - Math.floor(i / mCols) * (mW + mGap) - mW;
+        roundedRect(cover, cx, cy, mW, mW, 10, { color: C.photoBg });
+        const s = Math.min((mW - 12) / img.width, (mW - 12) / img.height);
+        cover.drawImage(img, { x: cx + (mW - img.width * s) / 2, y: cy + (mW - img.height * s) / 2, width: img.width * s, height: img.height * s });
+      });
+      void mRows;
+    }
+
+    // Cover footer band
+    cover.drawRectangle({ x: 0, y: 0, width: PAGE.w, height: 64, color: C.accentSoft });
+    cover.drawRectangle({ x: 0, y: 64, width: PAGE.w, height: 2, color: C.accent });
+    const note = catalogo.mostrarPrecios ? tienda.notaPrecios : 'Consulta precios con tu asesor.';
+    cover.drawText(note, { x: M, y: 38, size: 9, font: F.medium, color: C.heading });
+    wrap(tienda.avisoHojas, F.regular, 7.5, PAGE.w - 2 * M - 190, 2).forEach((line, i) => cover.drawText(line, { x: M, y: 25 - i * 10, size: 7.5, font: F.regular, color: C.muted }));
+    cover.drawText(web, { x: PAGE.w - M - F.bold.widthOfTextAtSize(web, 11), y: 30, size: 11, font: F.bold, color: C.accentStrong });
+    addLink(doc, cover, PAGE.w - M - 150, 20, 150, 28, utm(tienda.web));
+  }
 
   // ----- Product pages -----
   const perPage = cols * rows;
@@ -232,8 +266,20 @@ async function crearPDF({ catalogo, tienda, productos, slug, calidad = { escala:
         page.drawText(line, { x: tx, y: ly, size: nameSize, font: F.medium, color: C.text });
         ly -= nameSize + 2.5;
       }
-      const meta = [p.reference && `Ref. ${p.reference}`, p.sku && `Cód. ${p.sku}`].filter(Boolean).join('  ·  ');
-      if (meta) page.drawText(wrap(meta, F.regular, 7, tw, 1)[0], { x: tx, y: y + (catalogo.mostrarPrecios ? 24 : 9), size: 7, font: F.regular, color: C.muted });
+      // Reference as a gray tag (same as the store's product cards), SKU beside it
+      const my = y + (catalogo.mostrarPrecios ? 25 : 9);
+      let mx = tx;
+      if (p.reference) {
+        const refText = wrap(`Ref. ${p.reference}`, F.medium, 7, tw * 0.62, 1)[0];
+        const rw = F.medium.widthOfTextAtSize(refText, 7) + 10;
+        roundedRect(page, mx, my - 3.2, rw, 11.5, 5.75, { color: C.tagBg });
+        page.drawText(refText, { x: mx + 5, y: my, size: 7, font: F.medium, color: C.tagText });
+        mx += rw + 6;
+      }
+      if (p.sku) {
+        const skuText = wrap(`SKU ${p.sku}`, F.regular, 7, tx + tw - mx, 1)[0];
+        if (skuText && skuText !== '…') page.drawText(skuText, { x: mx, y: my, size: 7, font: F.regular, color: C.muted });
+      }
 
       if (catalogo.mostrarPrecios) {
         const priceText = `${p.precioVariable ? 'Desde ' : ''}${formatoPrecio(p.precio)}`;
@@ -247,7 +293,9 @@ async function crearPDF({ catalogo, tienda, productos, slug, calidad = { escala:
       addLink(doc, page, x, y, cardW, cardH, utm(p.url));
     });
 
-    // Footer
+    // Footer: dispatch note on every page, then site · prices note · page number
+    const aviso = wrap(tienda.avisoHojas, F.medium, 7, PAGE.w - 2 * M, 1)[0];
+    page.drawText(aviso, { x: (PAGE.w - F.medium.widthOfTextAtSize(aviso, 7)) / 2, y: 44, size: 7, font: F.medium, color: C.heading });
     page.drawRectangle({ x: M, y: 34, width: PAGE.w - 2 * M, height: 0.6, color: C.line });
     page.drawText(web, { x: M, y: 20, size: 7.5, font: F.bold, color: C.accentStrong });
     addLink(doc, page, M, 16, F.bold.widthOfTextAtSize(web, 7.5), 14, utm(tienda.web));

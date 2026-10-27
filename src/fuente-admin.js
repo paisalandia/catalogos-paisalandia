@@ -21,7 +21,7 @@ async function leerCatalogos() {
     metaobjects(type: "catalogo_pdf", first: 250) {
       nodes {
         id handle updatedAt
-        fields { key value reference { ... on Collection { id handle title } ... on GenericFile { id url } } }
+        fields { key value reference { ... on Collection { id handle title } ... on GenericFile { id url } ... on MediaImage { id image { url } } } }
       }
     }
   }`);
@@ -42,6 +42,7 @@ async function leerCatalogos() {
       huella: val('huella'),
       pdfId: val('pdf'),
       pdfSinPreciosId: val('pdf_sin_precios'),
+      portadaUrl: f.portada && f.portada.reference && f.portada.reference.image ? f.portada.reference.image.url : null,
     };
   });
 }
