@@ -132,8 +132,12 @@ async function mapLimit(items, limit, fn) {
 
 // catalogo: { titulo, subtitulo?, mostrarPrecios, disposicion, portadaUrl? }
 // tienda: { nombre, web, logoUrl, notaPrecios, avisoHojas }
+// ajustes: global settings from Shopify (sizes, colors, footer texts); see fuente-admin.js
 // calidad: { escala, jpeg } — photo resolution relative to its printed size, and JPEG quality
-async function crearPDF({ catalogo, tienda, productos, slug, calidad = { escala: 2.2, jpeg: 75 } }) {
+async function crearPDF({ catalogo, tienda, ajustes = {}, productos, slug, calidad = { escala: 2.2, jpeg: 75 } }) {
+  const notaPrecios = ajustes.notaPrecios || tienda.notaPrecios;
+  const avisoHojas = ajustes.avisoHojas || tienda.avisoHojas;
+  const colorPrecio = /^#[0-9a-f]{6}$/i.test(ajustes.colorPrecio || '') ? hex(ajustes.colorPrecio) : C.accentDeep;
   const doc = await PDFDocument.create();
   doc.registerFontkit(fontkit);
   const font = (w) => doc.embedFont(fs.readFileSync(path.join(FONT_DIR, `inter-latin-${w}-normal.woff`)), { subset: true });
@@ -145,16 +149,24 @@ async function crearPDF({ catalogo, tienda, productos, slug, calidad = { escala:
   doc.setCreator('Catálogos Paisalandia');
 
   const [cols, rows] = LAYOUTS[catalogo.disposicion] || LAYOUTS['2x3'];
-  // Most customers open the PDF on a phone, where a Letter page shows at ~64% (612 pt → ~390 px):
-  // these sizes keep names ≈10 px, references ≈8 px and prices ≈15 px on screen
-  const T = cols === 3 ? { name: 11.5, meta: 10, price: 17, unit: 10 } : { name: 16, meta: 13, price: 24, unit: 12 };
+  // Most customers open the PDF on a phone, where a Letter page shows at ~64% (612 pt → ~390 px).
+  // Sizes come from the global settings (for 4 per page); 9 per page uses 80% of them
+  const f = cols === 3 ? 0.8 : 1;
+  const T = {
+    name: (ajustes.tamanoNombre || 14) * f,
+    meta: (ajustes.tamanoReferencia || 11.5) * f,
+    price: (ajustes.tamanoPrecio || 21) * f,
+    unit: Math.max(8, (ajustes.tamanoReferencia || 11.5) * 0.92 * f),
+  };
+  const mostrarMeta = ajustes.mostrarReferencia !== false || ajustes.mostrarSku !== false;
   const gap = 10;
   const gridTop = PAGE.h - 62;
-  const gridBottom = 78;
+  const AV = ajustes.tamanoAviso || 10.5; // footer notice, two lines above the page footer
+  const gridBottom = 52 + 2 * AV * 1.25;
   const cardW = (PAGE.w - 2 * MP - gap * (cols - 1)) / cols;
   const cardH = (gridTop - gridBottom - gap * (rows - 1)) / rows;
   const nameH = T.name * 1.25 * 2;
-  const metaH = T.meta + 9;
+  const metaH = mostrarMeta ? T.meta + 9 : 0;
   const textH = nameH + metaH + (catalogo.mostrarPrecios ? T.price + 8 : 0) + 14;
   const photoH = cardH - textH - 10;
   // ~2x the printed size for phone zoom; big 2-column cards need less (≈400 px is sharp on a phone)
@@ -223,9 +235,9 @@ async function crearPDF({ catalogo, tienda, productos, slug, calidad = { escala:
     // Cover footer band
     cover.drawRectangle({ x: 0, y: 0, width: PAGE.w, height: 64, color: C.accentSoft });
     cover.drawRectangle({ x: 0, y: 64, width: PAGE.w, height: 2, color: C.accent });
-    const note = catalogo.mostrarPrecios ? tienda.notaPrecios : 'Consulta precios con tu asesor.';
+    const note = catalogo.mostrarPrecios ? notaPrecios : 'Consulta precios con tu asesor.';
     cover.drawText(note, { x: M, y: 38, size: 9, font: F.medium, color: C.heading });
-    wrap(tienda.avisoHojas, F.regular, 7.5, PAGE.w - 2 * M - 190, 2).forEach((line, i) => cover.drawText(line, { x: M, y: 25 - i * 10, size: 7.5, font: F.regular, color: C.muted }));
+    wrap(avisoHojas, F.regular, 7.5, PAGE.w - 2 * M - 190, 2).forEach((line, i) => cover.drawText(line, { x: M, y: 25 - i * 10, size: 7.5, font: F.regular, color: C.muted }));
     cover.drawText(web, { x: PAGE.w - M - F.bold.widthOfTextAtSize(web, 11), y: 30, size: 11, font: F.bold, color: C.accentStrong });
     addLink(doc, cover, PAGE.w - M - 150, 20, 150, 28, utm(tienda.web));
   }
@@ -277,14 +289,14 @@ async function crearPDF({ catalogo, tienda, productos, slug, calidad = { escala:
       const my = y + 10 + (catalogo.mostrarPrecios ? T.price + 8 : 0);
       const pillH = T.meta + 6;
       let mx = tx;
-      if (p.reference) {
+      if (p.reference && ajustes.mostrarReferencia !== false) {
         const refText = wrap(`Ref. ${p.reference}`, F.semibold, T.meta, tw * 0.62, 1)[0];
         const rw = F.semibold.widthOfTextAtSize(refText, T.meta) + 12;
         roundedRect(page, mx, my - 3.5, rw, pillH, pillH / 2, { color: C.tagBg });
         page.drawText(refText, { x: mx + 6, y: my + 0.5, size: T.meta, font: F.semibold, color: C.tagText });
         mx += rw + 8;
       }
-      if (p.sku) {
+      if (p.sku && ajustes.mostrarSku !== false) {
         const skuText = wrap(`SKU ${p.sku}`, F.medium, T.meta, tx + tw - mx, 1)[0];
         if (skuText && skuText !== '…') page.drawText(skuText, { x: mx, y: my + 0.5, size: T.meta, font: F.medium, color: C.muted });
       }
@@ -292,7 +304,7 @@ async function crearPDF({ catalogo, tienda, productos, slug, calidad = { escala:
       if (catalogo.mostrarPrecios) {
         const priceText = `${p.precioVariable ? 'Desde ' : ''}${formatoPrecio(p.precio)}`;
         // Large, heavy and dark green: the price must read at a glance on a phone
-        page.drawText(priceText, { x: tx, y: y + 10, size: T.price, font: F.black, color: C.accentDeep });
+        page.drawText(priceText, { x: tx, y: y + 10, size: T.price, font: F.black, color: colorPrecio });
         if (p.unitLabel) {
           const ux = tx + F.black.widthOfTextAtSize(priceText, T.price) + 7;
           page.drawText(p.unitLabel, { x: ux, y: y + 11, size: T.unit, font: F.semibold, color: C.muted });
@@ -302,13 +314,13 @@ async function crearPDF({ catalogo, tienda, productos, slug, calidad = { escala:
     });
 
     // Footer: dispatch note on every page (two lines, readable on a phone), then site · prices · page
-    wrap(tienda.avisoHojas, F.semibold, 11.5, PAGE.w - 2 * MP - 40, 2).forEach((line, i) => {
-      page.drawText(line, { x: (PAGE.w - F.semibold.widthOfTextAtSize(line, 11.5)) / 2, y: 56 - i * 14, size: 11.5, font: F.semibold, color: C.heading });
+    wrap(avisoHojas, F.semibold, AV, PAGE.w - 2 * MP - 40, 2).forEach((line, i, lines) => {
+      page.drawText(line, { x: (PAGE.w - F.semibold.widthOfTextAtSize(line, AV)) / 2, y: 42 + (lines.length - 1 - i) * AV * 1.25, size: AV, font: F.semibold, color: C.heading });
     });
     page.drawRectangle({ x: MP, y: 32, width: PAGE.w - 2 * MP, height: 0.6, color: C.line });
     page.drawText(web, { x: MP, y: 16, size: 9.5, font: F.bold, color: C.accentStrong });
     addLink(doc, page, MP, 12, F.bold.widthOfTextAtSize(web, 9.5), 16, utm(tienda.web));
-    const mid = catalogo.mostrarPrecios ? `${tienda.notaPrecios} · ${fecha}` : `Actualizado el ${fecha}`;
+    const mid = catalogo.mostrarPrecios ? `${notaPrecios} · ${fecha}` : `Actualizado el ${fecha}`;
     page.drawText(mid, { x: (PAGE.w - F.medium.widthOfTextAtSize(mid, 8.5)) / 2, y: 16, size: 8.5, font: F.medium, color: C.muted });
     const num = `${pi + 2} / ${totalPages}`;
     page.drawText(num, { x: PAGE.w - MP - F.semibold.widthOfTextAtSize(num, 9.5), y: 16, size: 9.5, font: F.semibold, color: C.muted });
