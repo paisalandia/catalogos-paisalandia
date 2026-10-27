@@ -10,6 +10,7 @@ Genera los catálogos en PDF directamente desde Shopify, los actualiza solos cad
    - **Productos por página:** 4 (fotos grandes) o 9 (compacto).
    - **Activo** y **Mostrar en la página Catálogos**.
    - **Orden** en la página.
+   - **Portada:** una imagen vertical para la primera página del PDF y la tarjeta de la página Catálogos. Si se deja vacía, el generador arma una portada automática con el logo y los productos.
    - Los campos «(automático)» los llena el generador; no hay que tocarlos.
 2. **Cada hora, GitHub Actions** ejecuta `generar.js`, que hace esto con cada catálogo activo:
    - Lee sus productos y deja solo los **activos, publicados en la tienda, con foto y con inventario**. Los productos que se reactivan entran solos en la siguiente hora.
@@ -75,5 +76,7 @@ En el repositorio: **Settings → Secrets and variables → Actions → New repo
 - `src/nombre.js`: separa nombre, referencia y unidad, con las mismas reglas que el tema de la tienda.
 - `herramientas/pdf-desde-tienda.js`: arma un PDF desde la tienda pública, sin claves, para probar el diseño.
 - `herramientas/vista-previa.mjs`: convierte páginas del PDF en imágenes.
+- `herramientas/portadas-catalogly.js`: migración única de las portadas desde Catalogly; ya se ejecutó.
+- `tienda.json`: datos fijos de la tienda (logo, web, nota de precios y el aviso que aparece al pie de cada hoja).
 - Si cambias el diseño, sube `VERSION_DISENO` en `generar.js`; así todos los catálogos se regeneran una vez.
 - Shopify acepta archivos de hasta 20 MB. Si un catálogo se pasa, el generador reduce la calidad de las fotos automáticamente.

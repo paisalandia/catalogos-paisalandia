@@ -17,7 +17,7 @@ const { subirPDF, enlaceFijo, borrarArchivos, guardarResultado } = require('./sr
 const TIENDA = require('./tienda.json');
 
 // Bump when the PDF design changes so every catalog is rebuilt once
-const VERSION_DISENO = 1;
+const VERSION_DISENO = 2;
 const LIMITE_BYTES = 19 * 1024 * 1024;
 const CALIDADES = [
   { escala: 2.2, jpeg: 75 },
@@ -41,7 +41,7 @@ const CALIDADES = [
       const { productos, excluidos } = await leerProductos(catalogo);
       const huella = crypto
         .createHash('sha1')
-        .update(JSON.stringify([VERSION_DISENO, catalogo.titulo, catalogo.mostrarPrecios, catalogo.sinPrecios, catalogo.disposicion, productos.map((p) => [p.id, p.title, p.precio, p.precioVariable, p.image, p.sku])]))
+        .update(JSON.stringify([VERSION_DISENO, TIENDA, catalogo.titulo, catalogo.portadaUrl, catalogo.mostrarPrecios, catalogo.sinPrecios, catalogo.disposicion, productos.map((p) => [p.id, p.title, p.precio, p.precioVariable, p.image, p.sku])]))
         .digest('hex');
 
       const faltaPdf = !catalogo.pdfId || (catalogo.sinPrecios && !catalogo.pdfSinPreciosId);
