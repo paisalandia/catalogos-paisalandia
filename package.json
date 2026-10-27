@@ -1,0 +1,24 @@
+{
+  "name": "catalogos-paisalandia",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Genera los catálogos PDF de Paisalandia desde Shopify y los publica con enlaces fijos.",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "generar": "node generar.js",
+    "local": "node generar.js --local"
+  },
+  "dependencies": {
+    "@fontsource/inter": "^5.1.0",
+    "@pdf-lib/fontkit": "^1.1.1",
+    "pdf-lib": "^1.17.1",
+    "sharp": "^0.33.5"
+  },
+  "devDependencies": {
+    "@napi-rs/canvas": "^0.1.65",
+    "pdfjs-dist": "^4.10.38"
+  }
+}
