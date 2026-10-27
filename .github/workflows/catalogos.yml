@@ -1,0 +1,40 @@
+name: Catálogos PDF
+
+on:
+  # Every hour; only catalogs whose products, prices or photos changed are rebuilt
+  schedule:
+    - cron: '17 * * * *'
+  # "Run workflow" button in GitHub → Actions
+  workflow_dispatch:
+    inputs:
+      catalogos:
+        description: 'Catálogos a generar, separados por espacio (vacío = todos)'
+        required: false
+        default: ''
+      forzar:
+        description: 'Regenerar aunque no haya cambios'
+        type: boolean
+        default: false
+
+concurrency:
+  group: catalogos
+  cancel-in-progress: false
+
+jobs:
+  generar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --omit=dev
+      - name: Generar y publicar catálogos
+        env:
+          SHOPIFY_STORE: ${{ secrets.SHOPIFY_STORE }}
+          SHOPIFY_CLIENT_ID: ${{ secrets.SHOPIFY_CLIENT_ID }}
+          SHOPIFY_CLIENT_SECRET: ${{ secrets.SHOPIFY_CLIENT_SECRET }}
+          SHOPIFY_TOKEN: ${{ secrets.SHOPIFY_TOKEN }}
+        run: node generar.js ${{ inputs.catalogos }} ${{ inputs.forzar && '--forzar' || '' }}
