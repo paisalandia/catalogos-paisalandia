@@ -17,7 +17,7 @@ const { subirPDF, enlaceFijo, borrarArchivos, guardarResultado } = require('./sr
 const TIENDA = require('./tienda.json');
 
 // Bump when the PDF design changes so every catalog is rebuilt once
-const VERSION_DISENO = 3;
+const VERSION_DISENO = 4;
 const LIMITE_BYTES = 19 * 1024 * 1024;
 const CALIDADES = [
   { escala: 2.2, jpeg: 75 },
