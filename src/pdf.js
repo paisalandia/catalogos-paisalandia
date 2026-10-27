@@ -150,7 +150,8 @@ async function crearPDF({ catalogo, tienda, productos, slug, calidad = { escala:
   const cardH = (gridTop - gridBottom - gap * (rows - 1)) / rows;
   const textH = catalogo.mostrarPrecios ? 62 : 48;
   const photoH = cardH - textH - 10;
-  const imgPx = Math.round(Math.min(cardW, photoH) * calidad.escala); // ~2x for phone zoom, still light
+  // ~2x the printed size for phone zoom; big 2-column cards need less (≈400 px is sharp on a phone)
+  const imgPx = Math.round(Math.min(cardW, photoH) * calidad.escala * (cols === 2 ? 0.68 : 1));
 
   const logoBytes = await fetchImage(tienda.logoUrl, 360);
   const logo = logoBytes ? await doc.embedJpg(logoBytes) : null;
