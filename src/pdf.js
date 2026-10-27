@@ -13,6 +13,7 @@ const C = {
   heading: hex('#1d3b12'),
   accent: hex('#47ac35'),
   accentStrong: hex('#2f7d16'),
+  accentDeep: hex('#1f6b12'),
   accentSoft: hex('#eef8e9'),
   highlight: hex('#ffd400'),
   text: hex('#1d1d1d'),
@@ -148,7 +149,7 @@ async function crearPDF({ catalogo, tienda, productos, slug, calidad = { escala:
   const gridBottom = 58;
   const cardW = (PAGE.w - 2 * M - gap * (cols - 1)) / cols;
   const cardH = (gridTop - gridBottom - gap * (rows - 1)) / rows;
-  const textH = catalogo.mostrarPrecios ? 62 : 48;
+  const textH = catalogo.mostrarPrecios ? 70 : 48;
   const photoH = cardH - textH - 10;
   // ~2x the printed size for phone zoom; big 2-column cards need less (≈400 px is sharp on a phone)
   const imgPx = Math.round(Math.min(cardW, photoH) * calidad.escala * (cols === 2 ? 0.68 : 1));
@@ -268,7 +269,7 @@ async function crearPDF({ catalogo, tienda, productos, slug, calidad = { escala:
         ly -= nameSize + 2.5;
       }
       // Reference as a gray tag (same as the store's product cards), SKU beside it
-      const my = y + (catalogo.mostrarPrecios ? 25 : 9);
+      const my = y + (catalogo.mostrarPrecios ? 31 : 9);
       let mx = tx;
       if (p.reference) {
         const refText = wrap(`Ref. ${p.reference}`, F.medium, 7, tw * 0.62, 1)[0];
@@ -284,11 +285,12 @@ async function crearPDF({ catalogo, tienda, productos, slug, calidad = { escala:
 
       if (catalogo.mostrarPrecios) {
         const priceText = `${p.precioVariable ? 'Desde ' : ''}${formatoPrecio(p.precio)}`;
-        const ps = cols === 3 ? 11 : 12.5;
-        page.drawText(priceText, { x: tx, y: y + 8, size: ps, font: F.bold, color: C.accentStrong });
+        // Large, heavy and dark green: the price must read at a glance on a phone
+        const ps = cols === 3 ? 14 : 17;
+        page.drawText(priceText, { x: tx, y: y + 9, size: ps, font: F.black, color: C.accentDeep });
         if (p.unitLabel) {
-          const ux = tx + F.bold.widthOfTextAtSize(priceText, ps) + 5;
-          page.drawText(p.unitLabel, { x: ux, y: y + 8.5, size: 7.5, font: F.medium, color: C.muted });
+          const ux = tx + F.black.widthOfTextAtSize(priceText, ps) + 6;
+          page.drawText(p.unitLabel, { x: ux, y: y + 10, size: 8.5, font: F.medium, color: C.muted });
         }
       }
       addLink(doc, page, x, y, cardW, cardH, utm(p.url));
