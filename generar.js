@@ -15,6 +15,10 @@ const { leerAjustes, leerCatalogos, leerProductos } = require('./src/fuente-admi
 const { crearPDF } = require('./src/pdf');
 const { subirPDF, enlaceFijo, borrarArchivos, guardarResultado } = require('./src/publicar');
 const { publicarNuevos } = require('./src/publicar-nuevos');
+const { instantanea, registrarCambios, limpiarHistorial } = require('./src/historial');
+const { leerAjustesInventario, aplicarReglas } = require('./src/inventario');
+const { ordenarColecciones } = require('./src/orden-sin-foto');
+const { gql } = require('./src/shopify');
 const TIENDA = require('./tienda.json');
 
 // Bump when the PDF design changes so every catalog is rebuilt once
@@ -32,13 +36,39 @@ const CALIDADES = [
   const local = args.includes('--local');
   const solo = args.filter((a) => !a.startsWith('--'));
 
-  // New products must be on the Online Store first, or no catalog can include them
-  if (!local) {
+  // What this run did, saved for the admin panel ("Gestión" → última revisión)
+  const revision = { fecha: new Date().toISOString(), catalogos: [] };
+  let ajInv = null;
+  // Each step is independent: a failure is reported and the next one still runs
+  const paso = async (nombre, fn) => {
     try {
-      const publicados = await publicarNuevos();
-      if (publicados) console.log(`${publicados} productos nuevos publicados en la Tienda online`);
+      return await fn();
     } catch (e) {
-      console.error(`✗ No se pudieron publicar los productos nuevos: ${e.message}`);
+      console.error(`✗ ${nombre}: ${e.message}`);
+      revision[`error_${nombre}`] = e.message;
+      return null;
+    }
+  };
+
+  if (!local) {
+    // 1. Inventory rules first: products at or below their limit go to draft, restocked ones come back
+    ajInv = await paso('inventario', leerAjustesInventario);
+    if (ajInv) {
+      revision.inventario = await paso('inventario', () => aplicarReglas(ajInv));
+      const r = revision.inventario;
+      if (r) console.log(r.activo ? `Inventario: ${r.ocultados} ocultados, ${r.reactivados} reactivados` : `Inventario (simulación): ocultaría ${r.ocultar}, reactivaría ${r.reactivar} (+${r.antiguos} borradores antiguos)`);
+    }
+    // 2. New products must be on the Online Store, or no catalog can include them
+    const publicados = await paso('publicar', publicarNuevos);
+    revision.publicados = publicados || 0;
+    if (publicados) console.log(`${publicados} productos nuevos publicados en la Tienda online`);
+    // 3. Products without a photo go to the end of every collection
+    if (ajInv) {
+      const orden = await paso('orden', () => ordenarColecciones({ simular: !ajInv.ordenSinFoto }));
+      if (orden) {
+        revision.orden = { ...orden, activo: ajInv.ordenSinFoto };
+        console.log(`Orden sin foto${ajInv.ordenSinFoto ? '' : ' (simulación)'}: ${orden.movidos} productos movidos en ${orden.colecciones} colecciones${orden.pasadasAManual.length ? `; a orden manual: ${orden.pasadasAManual.join(', ')}` : ''}`);
+      }
     }
   }
 
@@ -50,7 +80,7 @@ const CALIDADES = [
   for (const catalogo of catalogos) {
     const t0 = Date.now();
     try {
-      const { productos, excluidos } = await leerProductos(catalogo);
+      const { productos, excluidos, motivos } = await leerProductos(catalogo);
       const huella = crypto
         .createHash('sha1')
         .update(JSON.stringify([VERSION_DISENO, TIENDA, ajustes, catalogo.titulo, catalogo.portadaUrl, catalogo.mostrarPrecios, catalogo.sinPrecios, catalogo.disposicion, productos.map((p) => [p.id, p.title, p.precio, p.precioVariable, p.image, p.sku])]))
@@ -58,6 +88,11 @@ const CALIDADES = [
 
       const faltaPdf = !catalogo.pdfId || (catalogo.sinPrecios && !catalogo.pdfSinPreciosId);
       if (!forzar && !faltaPdf && catalogo.huella === huella) {
+        // Catalogs without history yet get their starting point recorded
+        if (!local && !Array.isArray(catalogo.previos) && productos.length) {
+          await registrarCambios(catalogo, productos, motivos);
+          await guardarResultado(catalogo.id, { productos_ids: JSON.stringify(instantanea(productos)) });
+        }
         console.log(`· ${catalogo.slug}: sin cambios (${productos.length} productos)`);
         continue;
       }
@@ -74,7 +109,7 @@ const CALIDADES = [
         .map((p, i) => `${i + 1}. ${p.sku || 's/SKU'} · ${p.name}${p.reference ? ` (Ref. ${p.reference})` : ''} · $ ${p.precio.toLocaleString('es-CO')}`)
         .join('\n')
         .slice(0, 60000); // Shopify text fields hold up to 65,535 characters
-      const resultado = { productos: productos.length, actualizado: new Date().toISOString(), huella, productos_listado: listado };
+      const resultado = { productos: productos.length, actualizado: new Date().toISOString(), huella, productos_listado: listado, productos_ids: JSON.stringify(instantanea(productos)) };
       const viejos = [];
       for (const v of versiones) {
         const slug = `${catalogo.slug}${v.sufijo}`;
@@ -101,6 +136,9 @@ const CALIDADES = [
         console.log(`  ${slug}: ${mb} MB → ${TIENDA.web}/catalogos/${slug}`);
       }
       if (!local) {
+        // History first: it compares against the previous list, which guardarResultado replaces
+        const cambio = await registrarCambios(catalogo, productos, motivos);
+        if (cambio) revision.catalogos.push({ catalogo: catalogo.slug, resumen: cambio });
         await guardarResultado(catalogo.id, resultado);
         await borrarArchivos(viejos.filter((id) => id && !Object.values(resultado).includes(id)));
       }
@@ -108,6 +146,20 @@ const CALIDADES = [
     } catch (e) {
       fallos++;
       console.error(`✗ ${catalogo.slug}: ${e.message}`);
+    }
+  }
+  if (!local) {
+    await paso('limpieza', async () => {
+      await limpiarHistorial('catalogo_historial');
+      await limpiarHistorial('inventario_historial');
+    });
+    if (ajInv && ajInv.id) {
+      await paso('revision', () =>
+        gql(`mutation($id: ID!, $m: MetaobjectUpdateInput!) { metaobjectUpdate(id: $id, metaobject: $m) { userErrors { message } } }`, {
+          id: ajInv.id,
+          m: { fields: [{ key: 'ultima_revision', value: JSON.stringify(revision) }] },
+        })
+      );
     }
   }
   if (fallos) process.exit(1);
