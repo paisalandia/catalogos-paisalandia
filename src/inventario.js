@@ -78,7 +78,8 @@ async function cambiarEstado(p, status, tags) {
 const resumenProducto = (p, limite) => ({ sku: (p.variants.nodes[0] || {}).sku || '', titulo: p.title, inventario: p.totalInventory, limite });
 
 async function aplicarReglas(aj) {
-  const limiteDe = (title) => (partirNombre(title).unit === 'DC' ? aj.limiteDc : aj.limiteUnd);
+  // "(DC)" anywhere in the title counts, also when text follows it ("... (DC)NETO")
+  const limiteDe = (title) => (/\(\s*DC\s*\)/i.test(title) || partirNombre(title).unit === 'DC' ? aj.limiteDc : aj.limiteUnd);
   const maximo = Math.max(aj.limiteUnd, aj.limiteDc);
   const minimo = Math.min(aj.limiteUnd, aj.limiteDc);
 

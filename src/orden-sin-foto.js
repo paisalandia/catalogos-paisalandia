@@ -90,6 +90,8 @@ async function ordenarColecciones({ simular }) {
       const base = await productosDe(c.id, ...ORDENES[original]);
       const deseado = [...base.filter((p) => p.foto), ...base.filter((p) => !p.foto)];
       sinFoto = base.length - base.filter((p) => p.foto).length;
+      // An automatic collection with every photo in place keeps its automatic order
+      if (!sinFoto && c.sortOrder !== 'MANUAL') continue;
       if (c.sortOrder !== 'MANUAL') {
         if (simular) {
           resumen.pasadasAManual.push(c.handle);
