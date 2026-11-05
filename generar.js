@@ -14,6 +14,7 @@ const crypto = require('crypto');
 const { leerAjustes, leerCatalogos, leerProductos } = require('./src/fuente-admin');
 const { crearPDF } = require('./src/pdf');
 const { subirPDF, enlaceFijo, borrarArchivos, guardarResultado } = require('./src/publicar');
+const { publicarNuevos } = require('./src/publicar-nuevos');
 const TIENDA = require('./tienda.json');
 
 // Bump when the PDF design changes so every catalog is rebuilt once
@@ -30,6 +31,16 @@ const CALIDADES = [
   const forzar = args.includes('--forzar');
   const local = args.includes('--local');
   const solo = args.filter((a) => !a.startsWith('--'));
+
+  // New products must be on the Online Store first, or no catalog can include them
+  if (!local) {
+    try {
+      const publicados = await publicarNuevos();
+      if (publicados) console.log(`${publicados} productos nuevos publicados en la Tienda online`);
+    } catch (e) {
+      console.error(`✗ No se pudieron publicar los productos nuevos: ${e.message}`);
+    }
+  }
 
   const ajustes = await leerAjustes();
   const catalogos = (await leerCatalogos()).filter((c) => c.activo && (!solo.length || solo.includes(c.slug)));
