@@ -85,6 +85,14 @@ async function leerCatalogos() {
       pdfId: val('pdf'),
       pdfSinPreciosId: val('pdf_sin_precios'),
       portadaUrl: f.portada && f.portada.reference && f.portada.reference.image ? f.portada.reference.image.url : null,
+      // What the PDF had last time ([id, price, sku, name] each), to record what changed
+      previos: (() => {
+        try {
+          return JSON.parse(val('productos_ids') || 'null');
+        } catch (e) {
+          return null;
+        }
+      })(),
     };
   });
 }
@@ -151,8 +159,18 @@ async function leerProductos(catalogo) {
   const orden = ORDENES[catalogo.orden];
   if (orden) productos.sort(orden);
 
+  // Why each product of the source is not in the PDF (for the change history)
+  const motivos = new Map();
+  for (const p of nodes) if (quitar.has(p.id)) motivos.set(p.id, 'Quitado a mano');
+  for (const p of candidatos) {
+    if (p.status !== 'ACTIVE' || !p.onlineStoreUrl) motivos.set(p.id, 'Oculto o sin publicar');
+    else if (!p.featuredMedia) motivos.set(p.id, 'Sin foto');
+    else if (!(p.totalInventory > 0)) motivos.set(p.id, 'Sin inventario');
+  }
+
   return {
     productos,
+    motivos,
     excluidos: {
       sinFoto: todos.filter((p) => !p.featuredMedia).length,
       sinInventario: todos.filter((p) => p.featuredMedia && !(p.totalInventory > 0)).length,
