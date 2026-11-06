@@ -38,10 +38,10 @@ async function actualizar(coleccionId, fuenteId, cambios) {
   const add = (campo, lista, ids) => {
     for (let i = 0; i < ids.length; i += LOTE) pasos.push({ [campo]: { [lista]: ids.slice(i, i + LOTE).map((productId) => ({ productId })) } });
   };
-  add('exclusion', 'selectionsToAdd', cambios.excluirAgregar);
-  add('exclusion', 'selectionsToRemove', cambios.excluirQuitar);
-  add('inclusion', 'selectionsToAdd', cambios.incluirAgregar);
   add('inclusion', 'selectionsToRemove', cambios.incluirQuitar);
+  add('inclusion', 'selectionsToAdd', cambios.incluirAgregar);
+  add('exclusion', 'selectionsToRemove', cambios.excluirQuitar);
+  add('exclusion', 'selectionsToAdd', cambios.excluirAgregar);
   for (const paso of pasos) {
     revisarErrores(
       (
@@ -83,16 +83,32 @@ async function sincronizarColecciones(catalogos) {
     if (!actual || !actual.fuenteId) continue;
     const previoEx = new Set(actual.previo.excluir);
     const previoIn = new Set(actual.previo.incluir);
+    const excluirAgregar = [...deseado.excluir].filter((id) => !actual.excluidos.has(id));
     const cambios = {
-      excluirAgregar: [...deseado.excluir].filter((id) => !actual.excluidos.has(id)),
+      excluirAgregar,
       // Only undo what the app itself excluded
       excluirQuitar: [...previoEx].filter((id) => !deseado.excluir.has(id) && actual.excluidos.has(id)),
-      incluirAgregar: [...deseado.incluir].filter((id) => !actual.incluidos.has(id)),
-      incluirQuitar: [...previoIn].filter((id) => !deseado.incluir.has(id) && actual.incluidos.has(id)),
+      incluirAgregar: [...deseado.incluir].filter((id) => !actual.incluidos.has(id) && !deseado.excluir.has(id)),
+      // What the app added and the catalog no longer has, plus anything included by hand in Shopify that
+      // the catalog now removes (Shopify won't exclude a product that is manually included)
+      incluirQuitar: [
+        ...new Set([
+          ...[...previoIn].filter((id) => !deseado.incluir.has(id) && actual.incluidos.has(id)),
+          ...excluirAgregar.filter((id) => actual.incluidos.has(id)),
+        ]),
+      ],
     };
+    // Inclusions first, so a product is no longer included by hand when it gets excluded
+    const ordenados = { incluirQuitar: cambios.incluirQuitar, incluirAgregar: cambios.incluirAgregar, excluirQuitar: cambios.excluirQuitar, excluirAgregar: cambios.excluirAgregar };
     const total = Object.values(cambios).reduce((n, l) => n + l.length, 0);
     if (total) {
-      await actualizar(coleccionId, actual.fuenteId, cambios);
+      try {
+        await actualizar(coleccionId, actual.fuenteId, ordenados);
+      } catch (e) {
+        // One collection failing must not stop the others
+        resumen.push({ coleccion: actual.titulo, error: e.message });
+        continue;
+      }
       resumen.push({
         coleccion: actual.titulo,
         excluidos: cambios.excluirAgregar.length,
