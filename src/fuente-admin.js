@@ -124,8 +124,9 @@ const ORDENES = {
   'Nombre (A-Z)': (a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base', numeric: true }),
   'Más nuevos primero': (a, b) => b.creado.localeCompare(a.creado),
   'Más antiguos primero': (a, b) => a.creado.localeCompare(b.creado),
-  'Precio: menor a mayor': (a, b) => a.precio - b.precio,
-  'Precio: mayor a menor': (a, b) => b.precio - a.precio,
+  // Same price: newest first
+    'Precio: menor a mayor': (a, b) => a.precio - b.precio || b.creado.localeCompare(a.creado),
+  'Precio: mayor a menor': (a, b) => b.precio - a.precio || b.creado.localeCompare(a.creado),
 };
 
 async function leerProductos(catalogo) {

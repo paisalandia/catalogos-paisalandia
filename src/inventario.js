@@ -25,6 +25,7 @@ async function leerAjustesInventario() {
     limiteDc: num('limite_dc', 3),
     reactivarAntiguos: f.reactivar_antiguos === 'true',
     ordenSinFoto: f.orden_sin_foto === 'true',
+    ordenColecciones: f.orden_colecciones || 'Precio: menor a mayor',
   };
 }
 
