@@ -80,7 +80,10 @@ const CALIDADES = [
     const sync = await paso('colecciones', () => sincronizarColecciones(todos));
     if (sync) {
       revision.colecciones = sync;
-      if (sync.length) console.log('Colecciones sincronizadas con los catálogos: ' + sync.map((x) => `${x.coleccion} (−${x.excluidos} +${x.agregados}, devueltos ${x.devueltos}, retirados ${x.retirados})`).join('; '));
+      for (const x of sync) {
+        if (x.error) console.error(`✗ Colección ${x.coleccion}: ${x.error}`);
+        else console.log(`Colección ${x.coleccion} sincronizada con su catálogo: −${x.excluidos} quitados, +${x.agregados} agregados, ${x.devueltos} devueltos, ${x.retirados} retirados`);
+      }
     }
   }
   const catalogos = todos.filter((c) => !solo.length || solo.includes(c.slug));
