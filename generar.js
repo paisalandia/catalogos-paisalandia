@@ -18,6 +18,7 @@ const { publicarNuevos } = require('./src/publicar-nuevos');
 const { instantanea, registrarCambios, limpiarHistorial } = require('./src/historial');
 const { leerAjustesInventario, aplicarReglas } = require('./src/inventario');
 const { ordenarColecciones } = require('./src/orden-sin-foto');
+const { sincronizarColecciones } = require('./src/sincronizar-colecciones');
 const { gql } = require('./src/shopify');
 const TIENDA = require('./tienda.json');
 
@@ -73,7 +74,16 @@ const CALIDADES = [
   }
 
   const ajustes = await leerAjustes();
-  const catalogos = (await leerCatalogos()).filter((c) => c.activo && (!solo.length || solo.includes(c.slug)));
+  const todos = (await leerCatalogos()).filter((c) => c.activo);
+  // 4. Products removed from / added to a catalog by hand are removed from / added to its collection too
+  if (!local) {
+    const sync = await paso('colecciones', () => sincronizarColecciones(todos));
+    if (sync) {
+      revision.colecciones = sync;
+      if (sync.length) console.log('Colecciones sincronizadas con los catálogos: ' + sync.map((x) => `${x.coleccion} (−${x.excluidos} +${x.agregados}, devueltos ${x.devueltos}, retirados ${x.retirados})`).join('; '));
+    }
+  }
+  const catalogos = todos.filter((c) => !solo.length || solo.includes(c.slug));
   console.log(`${catalogos.length} catálogos activos · ajustes: nombre ${ajustes.tamanoNombre}, referencia ${ajustes.tamanoReferencia}, precio ${ajustes.tamanoPrecio}`);
   let fallos = 0;
 
