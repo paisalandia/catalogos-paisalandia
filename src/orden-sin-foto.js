@@ -1,14 +1,12 @@
-// Keeps products without a photo at the end of every collection.
-// - Collections already sorted by hand: only the photo-less products are moved to the end, in the
-//   order they had; the rest of the hand-made order is untouched.
-// - Collections with an automatic order (newest, A-Z, best selling, price…): Shopify only lets an
-//   app reorder a collection set to "manual", so the original order is saved in the collection
-//   metafield gestion.orden_original, the collection switches to manual, and every hour the
-//   products are laid out again in that original order with the photo-less ones last.
-// To give a collection its automatic order back, set its order in Shopify and delete that metafield.
+// Orders every collection with the newest products first and the photo-less ones at the end.
+// Shopify only lets an app reorder a collection set to "manual", so collections with an automatic
+// order switch to manual (the order they had is saved in the collection metafield
+// gestion.orden_original), and every hour the products are laid out again: newest first, products
+// without a photo last. Only the products whose place changed are moved.
 const { gql, revisarErrores, sleep } = require('./shopify');
 
 const OMITIR = new Set(['globofilter-best-selling-products-index']); // app index, not shown to customers
+const ORDEN_TODAS = 'CREATED_DESC'; // newest first
 const ORDENES = {
   CREATED_DESC: ['CREATED', true],
   CREATED: ['CREATED', false],
@@ -19,7 +17,7 @@ const ORDENES = {
   PRICE_DESC: ['PRICE', true],
 };
 const LOTE = 250; // moves per reorder call (Shopify's limit)
-const MAX_MOVIMIENTOS = 6000; // per run; the rest waits for the next hour
+const MAX_MOVIMIENTOS = 15000; // per run; the rest waits for the next hour
 
 async function productosDe(id, sortKey, reverse) {
   const out = [];
@@ -80,46 +78,33 @@ async function ordenarColecciones({ simular }) {
 
   for (const c of collections.nodes) {
     if (OMITIR.has(c.handle) || presupuesto <= 0) continue;
-    const original = (c.metafield && c.metafield.value) || (c.sortOrder !== 'MANUAL' ? c.sortOrder : null);
-    const automatico = original && ORDENES[original];
 
-    let moves;
-    let sinFoto;
-    if (automatico) {
-      // Emulate the automatic order with the photo-less products last
-      const base = await productosDe(c.id, ...ORDENES[original]);
-      const deseado = [...base.filter((p) => p.foto), ...base.filter((p) => !p.foto)];
-      sinFoto = base.length - base.filter((p) => p.foto).length;
-      // An automatic collection with every photo in place keeps its automatic order
-      if (!sinFoto && c.sortOrder !== 'MANUAL') continue;
-      if (c.sortOrder !== 'MANUAL') {
-        if (simular) {
-          resumen.pasadasAManual.push(c.handle);
-          resumen.colecciones++;
-          resumen.movidos += base.length;
-          resumen.detalle.push({ coleccion: c.handle, sinFoto, movimientos: base.length });
-          continue;
-        }
-        revisarErrores(
-          (
-            await gql(`mutation($c: CollectionInput!) { collectionUpdate(input: $c) { userErrors { field message } } }`, {
-              c: { id: c.id, sortOrder: 'MANUAL', metafields: [{ namespace: 'gestion', key: 'orden_original', type: 'single_line_text_field', value: original }] },
-            })
-          ).collectionUpdate,
-          'Pasar colección a orden manual'
-        );
+    // Owner's rule (2026-11-06): every collection shows the newest products first, photo-less ones last
+    const base = await productosDe(c.id, ...ORDENES[ORDEN_TODAS]);
+    const deseado = [...base.filter((p) => p.foto), ...base.filter((p) => !p.foto)];
+    const sinFoto = base.length - base.filter((p) => p.foto).length;
+
+    if (c.sortOrder !== 'MANUAL') {
+      // Shopify only lets an app reorder a manual collection; the order it had is kept for reference
+      if (simular) {
         resumen.pasadasAManual.push(c.handle);
+        resumen.colecciones++;
+        resumen.movidos += base.length;
+        resumen.detalle.push({ coleccion: c.handle, sinFoto, movimientos: base.length });
+        continue;
       }
-      const actual = await productosDe(c.id, 'MANUAL', false);
-      moves = movimientosCompletos(actual, deseado);
-    } else {
-      // Hand-made order: send only the photo-less products not already at the end
-      const actual = await productosDe(c.id, 'MANUAL', false);
-      const conFoto = actual.filter((p) => p.foto).length;
-      sinFoto = actual.length - conFoto;
-      const fueraDeLugar = actual.slice(0, conFoto).some((p) => !p.foto);
-      moves = fueraDeLugar ? actual.filter((p) => !p.foto).map((p) => ({ id: p.id, newPosition: String(actual.length - 1) })) : [];
+      revisarErrores(
+        (
+          await gql(`mutation($c: CollectionInput!) { collectionUpdate(input: $c) { userErrors { field message } } }`, {
+            c: { id: c.id, sortOrder: 'MANUAL', metafields: [{ namespace: 'gestion', key: 'orden_original', type: 'single_line_text_field', value: (c.metafield && c.metafield.value) || c.sortOrder }] },
+          })
+        ).collectionUpdate,
+        'Pasar colección a orden manual'
+      );
+      resumen.pasadasAManual.push(c.handle);
     }
+    const actual = await productosDe(c.id, 'MANUAL', false);
+    let moves = movimientosCompletos(actual, deseado);
 
     if (!moves.length) continue;
     moves = moves.slice(0, presupuesto);
