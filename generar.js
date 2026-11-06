@@ -64,7 +64,7 @@ const CALIDADES = [
     if (publicados) console.log(`${publicados} productos nuevos publicados en la Tienda online`);
     // 3. Products without a photo go to the end of every collection
     if (ajInv) {
-      const orden = await paso('orden', () => ordenarColecciones({ simular: !ajInv.ordenSinFoto }));
+      const orden = await paso('orden', () => ordenarColecciones({ simular: !ajInv.ordenSinFoto, orden: ajInv.ordenColecciones }));
       if (orden) {
         revision.orden = { ...orden, activo: ajInv.ordenSinFoto };
         console.log(`Orden sin foto${ajInv.ordenSinFoto ? '' : ' (simulación)'}: ${orden.movidos} productos movidos en ${orden.colecciones} colecciones${orden.pasadasAManual.length ? `; a orden manual: ${orden.pasadasAManual.join(', ')}` : ''}`);
