@@ -9,6 +9,7 @@
 // module only simulates and reports what it would do.
 const { gql, revisarErrores } = require('./shopify');
 const { partirNombre } = require('./nombre');
+const { tiendaOnline } = require('./publicar-nuevos');
 
 const ETIQUETA = 'oculto-por-inventario';
 const MAX_CAMBIOS = 1500; // per run; the rest waits for the next hour
@@ -115,9 +116,22 @@ async function aplicarReglas(aj) {
     await registrar(p, 'Ocultado', limiteDe(p.title));
     resultado.ocultados++;
   }
-  for (const p of [...reactivar, ...(aj.reactivarAntiguos ? antiguos : [])]) {
+  // A reactivated product must also be on the Online Store, or it stays invisible in the store,
+  // the collections and the catalogs (old drafts often aren't published there)
+  const reactivables = [...reactivar, ...(aj.reactivarAntiguos ? antiguos : [])];
+  const publicationId = reactivables.length ? await tiendaOnline() : null;
+  for (const p of reactivables) {
     if (cambios++ >= MAX_CAMBIOS) break;
     await cambiarEstado(p, 'ACTIVE', 'quitar');
+    revisarErrores(
+      (
+        await gql(`mutation($id: ID!, $input: [PublicationInput!]!) { publishablePublish(id: $id, input: $input) { userErrors { field message } } }`, {
+          id: p.id,
+          input: [{ publicationId }],
+        })
+      ).publishablePublish,
+      'Publicar producto reactivado'
+    );
     await registrar(p, 'Reactivado', limiteDe(p.title));
     resultado.reactivados++;
   }

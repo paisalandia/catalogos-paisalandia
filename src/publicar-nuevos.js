@@ -41,4 +41,4 @@ async function publicarNuevos() {
   return pendientes.length;
 }
 
-module.exports = { publicarNuevos };
+module.exports = { publicarNuevos, tiendaOnline };
