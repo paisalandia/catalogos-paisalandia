@@ -38,7 +38,8 @@ async function gql(query, variables = {}, tries = 6) {
     }
     const body = await res.json();
     if (body.errors) {
-      if (body.errors.some((e) => e.extensions && e.extensions.code === 'THROTTLED')) {
+      // Throttling and Shopify's occasional internal errors are temporary: wait and try again
+      if (body.errors.some((e) => e.extensions && ['THROTTLED', 'INTERNAL_SERVER_ERROR'].includes(e.extensions.code))) {
         await sleep(2000 * (i + 1));
         continue;
       }
