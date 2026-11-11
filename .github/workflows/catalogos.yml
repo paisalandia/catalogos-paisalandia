@@ -1,7 +1,8 @@
 name: Catálogos PDF
 
 on:
-# Hourly from cron-job.org (workflow_dispatch). No GitHub schedule: it added extra runs.
+  # Runs every hour, triggered from outside by cron-job.org through workflow_dispatch.
+  # No "schedule" here: GitHub's own cron fired at random times and added extra runs.
   # "Run workflow" button in GitHub → Actions
   workflow_dispatch:
     inputs:
@@ -13,6 +14,10 @@ on:
         description: 'Regenerar aunque no haya cambios'
         type: boolean
         default: false
+
+# The job only reads the code; it talks to Shopify with its own secrets, never writes to this repo
+permissions:
+  contents: read
 
 concurrency:
   group: catalogos
