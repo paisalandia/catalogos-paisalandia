@@ -1,9 +1,7 @@
 name: Catálogos PDF
 
 on:
-  # Every hour; only catalogs whose products, prices or photos changed are rebuilt
-  schedule:
-    - cron: '17 * * * *'
+# Hourly from cron-job.org (workflow_dispatch). No GitHub schedule: it added extra runs.
   # "Run workflow" button in GitHub → Actions
   workflow_dispatch:
     inputs:
